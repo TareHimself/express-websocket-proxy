@@ -4,6 +4,7 @@ import http from 'http';
 import { PROXY_PATH_REGEX } from "./constants";
 import { Server as SocketIoServer, Socket } from "socket.io";
 import { v4 as uuidv4 } from 'uuid';
+import util from 'util'
 
 class Server {
 	app: any;
@@ -120,25 +121,32 @@ class Server {
 			this.app[method](finalRoute, callback)
 			this.routesToSockets.set(route, socketId)
 		});
+
 	}
 	unRegisterRoutes(socket: Socket) {
 		// format [method|route][]
-		const routes = this.socketToRoutes.get(socket.id)
-		if (routes) {
-			this.app._router.stack = this.app._router.stack.filter(stackItem => {
-				if (!stackItem?.route?.path) return true
-				return !routes.includes(stackItem.route.path)
+		const routes = this.socketToRoutes.get(socket.id) || []
+
+
+		if (routes.length == 0) return
+
+		for (let i = 0; i < this.app._router.stack.length; i++) {
+			const route = this.app._router.stack[i]
+
+			if (!route?.route?.path) continue;
+
+			const itemIndex = routes.findIndex((r) => {
+				return r === `${route.route.stack[0].method}|${route.route.path.slice(1)}`
 			})
 
-			routes.forEach((r) => {
-				this.routesToSockets.delete(r);
-			})
+			if (itemIndex < 0) continue;
 
-			this.socketToRoutes.delete(socket.id)
+			this.app._router.stack.splice(i, 1)
+
+			routes.splice(itemIndex, 1)
+
+			i--
 		}
-
-
-
 	}
 }
 
