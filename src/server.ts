@@ -12,12 +12,14 @@ const DEFAULT_SERVER_OPTIONS: ServerStartOptions = {
 	use_ssl: false
 }
 
+type ExpressCallback = (req: any, res: any) => Promise<void>
+
 class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	app: any;
 	server: http.Server | https.Server | null;
 	socket: SocketIoServer | null;
-	routes_to_sockets: Map<string, string>;
-	socket_to_routes: Map<string, string[]>;
+	callbacks_to_sockets: Map<ExpressCallback, string>;
+	sockets_to_callbacks: Map<string, ExpressCallback[]>;
 	client_request_timeout: number;
 	authenticator: (Socket: Socket, data: IdentifyType) => boolean;
 	authenticated_sockets: Map<string, number>;
@@ -27,8 +29,8 @@ class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 		this.app = express();
 		this.server = null;
 		this.socket = null;
-		this.routes_to_sockets = new Map()
-		this.socket_to_routes = new Map()
+		this.callbacks_to_sockets = new Map()
+		this.sockets_to_callbacks = new Map()
 		this.authenticated_sockets = new Map()
 		this.authenticator = (Socket: Socket, data: IdentifyType) => true
 	}
@@ -75,13 +77,12 @@ class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 
 	async registerRoutes(routes: string[], socketId: string) {
-
-		routes.forEach(route => {
+		const callbacks = routes.map(route => {
 			const [combined, method, path] = Array.from(PROXY_PATH_REGEX.exec(route)!)
 			const callback = async (req, res) => {
-				if (!this.socket) throw new Error('No Socket Before Registering Routes')
-				const url = req.originalUrl
-				const socket = this.socket.sockets.sockets.get(this.routes_to_sockets.get(route)!)
+				const funcHandle = req.route.stack[0].handle
+				if (!this.socket) throw new Error('Main Io Server is invalid')
+				const socket = this.socket.sockets.sockets.get(this.callbacks_to_sockets.get(funcHandle)!)
 				if (socket && socket.connected) {
 					const payload = {
 						params: req.params,
@@ -115,37 +116,45 @@ class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 				res.sendStatus(404)
 			}
 
-			const finalRoute = `/${path}`
+			const finalRoute = route.trim().startsWith('-') ? new RegExp(path) : `/${path}`;
 			this.app[method](finalRoute, callback)
-			this.routes_to_sockets.set(route, socketId)
+			this.callbacks_to_sockets.set(callback, socketId)
+
+			return callback
 		});
 
+		this.sockets_to_callbacks.set(socketId, callbacks)
 	}
 
 	unRegisterRoutes(socket: Socket) {
 		// format [method|route][]
-		const routes = this.socket_to_routes.get(socket.id) || []
+		const callbacks = this.sockets_to_callbacks.get(socket.id) || []
 
-
-		if (routes.length == 0) return
+		console.log("BEFORE", util.inspect(this.app._router.stack, true, null, true))
+		if (callbacks.length == 0) return
 
 		for (let i = 0; i < this.app._router.stack.length; i++) {
 			const route = this.app._router.stack[i]
 
+
 			if (!route?.route?.path) continue;
 
-			const itemIndex = routes.findIndex((r) => {
-				return r === `${route.route.stack[0].method}|${route.route.path.slice(1)}`
+			const funcHandle = route.route.stack[0].handle;
+
+			const itemIndex = callbacks.findIndex((c) => {
+				return c === funcHandle
 			})
 
 			if (itemIndex < 0) continue;
 
 			this.app._router.stack.splice(i, 1)
 
-			routes.splice(itemIndex, 1)
+			callbacks.splice(itemIndex, 1)
 
 			i--
 		}
+
+		console.log("AFTER", util.inspect(this.app._router.stack, true, null, true))
 	}
 
 	async onIdentify(authenticator: (Socket: Socket, data: IdentifyType) => boolean) {
@@ -181,7 +190,7 @@ class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 			socket.once('identify', async (data) => {
 				if (!this.authenticator(socket, data)) return
 				this.authenticated_sockets.set(socket.id, 1)
-				this.socket_to_routes.set(socket.id, data.routes)
+				this.sockets_to_callbacks.set(socket.id, data.routes)
 				await this.registerRoutes(data.routes, socket.id)
 			})
 
