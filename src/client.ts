@@ -41,19 +41,19 @@ class WebRequest extends EventEmitter {
 	}
 }
 
-class Client {
-	methods: [string, (req: WebRequest) => void][];
+class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
+	routes: [string, (req: WebRequest) => void][];
 	socket: Socket | null;
 	url: string;
 	constructor(url: string) {
-		this.methods = []
+		this.routes = []
 		this.socket = null
 		this.url = url
 	}
 
 	on(path: string, callback: (req: WebRequest) => void) {
 		if (!PROXY_PATH_REGEX.exec(path)) throw Error(`Path "${path}" does not match required format "${PROXY_PATH_REGEX.source}"`)
-		this.methods.push([path, callback])
+		this.routes.push([path, callback])
 	}
 
 	methodProxy(method: (req: WebRequest) => void, req: RawProxiedRequest) {
@@ -62,12 +62,13 @@ class Client {
 		}
 	}
 
-	connect() {
+	connect(getIdentify?: (this_client: Client<IdentifyType>, this_socket: Socket) => IdentifyType) {
+
 		this.socket = io(this.url, {
 			reconnectionDelayMax: 10000,
 		});
 
-		this.methods.forEach(([path, method]) => {
+		this.routes.forEach(([path, method]) => {
 			if (this.socket) {
 				this.socket.on(path, this.methodProxy.bind(this, method))
 			}
@@ -75,10 +76,14 @@ class Client {
 
 		this.socket.on('connect', (() => {
 			if (this.socket) {
-				const identity: ProxyIdentify = {
-					routes: this.methods.map(m => m[0])
+
+				if (!getIdentify) {
+					getIdentify = (this_client: Client<IdentifyType>, this_socket: Socket) => {
+						return { routes: this_client.routes.map(m => m[0]) } as IdentifyType
+					}
 				}
-				this.socket.emit('identify', identity)
+
+				this.socket.emit('identify', getIdentify(this, this.socket))
 			}
 
 		}).bind(this))

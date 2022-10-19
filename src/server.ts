@@ -1,39 +1,36 @@
-import { ProxiedResponse, RawProxiedRequest } from "./types";
+import { ProxiedResponse, ProxyIdentify, RawProxiedRequest, ServerStartOptions } from "./types";
 import express from 'express';
 import http from 'http';
+import https from 'https'
 import { PROXY_PATH_REGEX } from "./constants";
 import { Server as SocketIoServer, Socket } from "socket.io";
 import { v4 as uuidv4 } from 'uuid';
 import util from 'util'
 
-class Server {
+const DEFAULT_SERVER_OPTIONS: ServerStartOptions = {
+	port: 80,
+	use_ssl: false
+}
+
+class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	app: any;
-	httpServer: http.Server;
-	socket: SocketIoServer;
-	routesToSockets: Map<string, string>;
-	socketToRoutes: Map<string, string[]>;
-	clientRequestTimeout: number;
+	server: http.Server | https.Server | null;
+	socket: SocketIoServer | null;
+	routes_to_sockets: Map<string, string>;
+	socket_to_routes: Map<string, string[]>;
+	client_request_timeout: number;
+	authenticator: (Socket: Socket, data: IdentifyType) => boolean;
+	authenticated_sockets: Map<string, number>;
 
 	constructor(clientRequestTimeout = 10000) {
-		this.clientRequestTimeout = clientRequestTimeout
+		this.client_request_timeout = clientRequestTimeout
 		this.app = express();
-		this.httpServer = http.createServer(this.app);
-		this.socket = new SocketIoServer(this.httpServer);
-		this.routesToSockets = new Map()
-		this.socketToRoutes = new Map()
-
-		this.socket.on('error', console.log)
-		this.socket.on('connection', (socket) => {
-
-			socket.once('identify', async (data) => {
-				this.socketToRoutes.set(socket.id, data.routes)
-				await this.registerRoutes(data.routes, socket.id)
-			})
-
-			socket.once('disconnect', () => {
-				this.unRegisterRoutes(socket)
-			})
-		});
+		this.server = null;
+		this.socket = null;
+		this.routes_to_sockets = new Map()
+		this.socket_to_routes = new Map()
+		this.authenticated_sockets = new Map()
+		this.authenticator = (Socket: Socket, data: IdentifyType) => true
 	}
 
 	getSocketResponse(req: any, socket: Socket, method: string, payload: Partial<RawProxiedRequest>, timeout = 10000) {
@@ -82,8 +79,9 @@ class Server {
 		routes.forEach(route => {
 			const [combined, method, path] = Array.from(PROXY_PATH_REGEX.exec(route)!)
 			const callback = async (req, res) => {
+				if (!this.socket) throw new Error('No Socket Before Registering Routes')
 				const url = req.originalUrl
-				const socket = this.socket.sockets.sockets.get(this.routesToSockets.get(route)!)
+				const socket = this.socket.sockets.sockets.get(this.routes_to_sockets.get(route)!)
 				if (socket && socket.connected) {
 					const payload = {
 						params: req.params,
@@ -119,13 +117,14 @@ class Server {
 
 			const finalRoute = `/${path}`
 			this.app[method](finalRoute, callback)
-			this.routesToSockets.set(route, socketId)
+			this.routes_to_sockets.set(route, socketId)
 		});
 
 	}
+
 	unRegisterRoutes(socket: Socket) {
 		// format [method|route][]
-		const routes = this.socketToRoutes.get(socket.id) || []
+		const routes = this.socket_to_routes.get(socket.id) || []
 
 
 		if (routes.length == 0) return
@@ -148,10 +147,57 @@ class Server {
 			i--
 		}
 	}
+
+	async onIdentify(authenticator: (Socket: Socket, data: IdentifyType) => boolean) {
+		this.authenticator = authenticator
+	}
+
+
+
+	start(options: ServerStartOptions | null | number, callback?: () => void) {
+		if (typeof options === 'number') {
+			options = DEFAULT_SERVER_OPTIONS && { port: options }
+		}
+		else if (!options) {
+			options = DEFAULT_SERVER_OPTIONS
+		}
+
+		if (options.use_ssl) {
+			if (!options.ssl_cert || !options.ssl_key) {
+				throw new Error(`Missing SSl Cert (and/or) Key`)
+			}
+
+			this.server = https.createServer({ key: options.ssl_key, cert: options.ssl_cert }, this.app);
+		}
+		else {
+			this.server = http.createServer(this.app);
+		}
+
+		this.socket = new SocketIoServer(this.server);
+
+		this.socket.on('error', console.log)
+		this.socket.on('connection', (socket) => {
+
+			socket.once('identify', async (data) => {
+				if (!this.authenticator(socket, data)) return
+				this.authenticated_sockets.set(socket.id, 1)
+				this.socket_to_routes.set(socket.id, data.routes)
+				await this.registerRoutes(data.routes, socket.id)
+			})
+
+			socket.once('disconnect', () => {
+				if (!this.authenticated_sockets.get(socket.id)) return
+				this.unRegisterRoutes(socket)
+			})
+		});
+
+		this.server.listen(options.port, options.hostname, undefined, callback)
+	}
 }
 
 
 
 export {
-	Server
+	Server,
+	DEFAULT_SERVER_OPTIONS
 }

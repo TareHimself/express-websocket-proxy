@@ -1,3 +1,4 @@
+import { FSWatcher } from "fs";
 
 export interface RawProxiedRequest {
 	params: { [param: string]: number };
@@ -19,5 +20,13 @@ export interface ProxiedResponse {
 
 export interface ProxyIdentify {
 	routes: string[];
+}
+
+export interface ServerStartOptions {
+	port?: number;
+	hostname?: string;
+	use_ssl?: boolean;
+	ssl_key?: string | Buffer;
+	ssl_cert?: string | Buffer;
 }
 
