@@ -16,6 +16,7 @@ class WebRequest extends EventEmitter {
 		Object.assign(this, req)
 		this.onCloseCallback = (() => { this.emit('close'); this.onCloseCallback = null }).bind(this)
 		this.sc.once(`${this.id}|close`, this.onCloseCallback)
+
 	}
 
 	removeAllCallbacks() {
@@ -45,10 +46,14 @@ class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	routes: [string, (req: WebRequest) => void][];
 	socket: Socket | null;
 	url: string;
+	identify_generator: (this_client: Client<IdentifyType>, this_socket: Socket) => IdentifyType;
 	constructor(url: string) {
 		this.routes = []
 		this.socket = null
 		this.url = url
+		this.identify_generator = (this_client, this_socket) => {
+			return { routes: this_client.routes.map(m => m[0]) } as IdentifyType
+		}
 	}
 
 	on(path: string, callback: (req: WebRequest) => void) {
@@ -64,6 +69,8 @@ class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 	connect(getIdentify?: (this_client: Client<IdentifyType>, this_socket: Socket) => IdentifyType) {
 
+		if (getIdentify) this.identify_generator = getIdentify
+
 		this.socket = io(this.url, {
 			reconnectionDelayMax: 10000,
 		});
@@ -76,14 +83,7 @@ class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 		this.socket.on('connect', (() => {
 			if (this.socket) {
-
-				if (!getIdentify) {
-					getIdentify = (this_client: Client<IdentifyType>, this_socket: Socket) => {
-						return { routes: this_client.routes.map(m => m[0]) } as IdentifyType
-					}
-				}
-
-				this.socket.emit('identify', getIdentify(this, this.socket))
+				this.socket.emit('identify', this.identify_generator(this, this.socket))
 			}
 
 		}).bind(this))

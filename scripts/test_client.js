@@ -18,4 +18,6 @@ c.on('post|', (res) => {
 	res.sendBody('YOOOOOOO')
 })
 
-c.connect()
+c.connect((client, server) => {
+	return { routes: client.routes.map(m => m[0]), msg: "SUCK MY COCK" }
+})
