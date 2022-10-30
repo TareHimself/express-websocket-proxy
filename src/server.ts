@@ -70,7 +70,7 @@ class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 			socket.emit(method, { ...payload, id: responseId })
 
-			req.once('close', onClose)
+			//req.once('close', onClose) issue with close event
 		})
 
 	}
@@ -129,8 +129,6 @@ class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	unRegisterRoutes(socket: Socket) {
 		// format [method|route][]
 		const callbacks = this.sockets_to_callbacks.get(socket.id) || []
-
-		console.log("BEFORE", util.inspect(this.app._router.stack, true, null, true))
 		if (callbacks.length == 0) return
 
 		for (let i = 0; i < this.app._router.stack.length; i++) {
@@ -154,7 +152,6 @@ class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 			i--
 		}
 
-		console.log("AFTER", util.inspect(this.app._router.stack, true, null, true))
 	}
 
 	async onIdentify(authenticator: (Socket: Socket, data: IdentifyType) => boolean) {
