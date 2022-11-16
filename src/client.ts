@@ -3,12 +3,21 @@ import { ProxiedResponse, ProxyIdentify, RawProxiedRequest } from './types';
 import { EventEmitter } from 'events';
 import { PROXY_PATH_REGEX } from './constants';
 
+export class WebRequest extends EventEmitter {
 
-class WebRequest extends EventEmitter {
 	webSocket: Socket;
 	id: string;
 	url: string;
+	params: { [param: string]: number };
+	query: { [query: string]: number };
+	headers: { [header: string]: number };
+	body?: any;
+	method: string;
+	originalUrl: string;
+	baseUrl: string;
+	path: string
 	onCloseCallback: (() => void) | null;
+
 
 	constructor(req: RawProxiedRequest, socket: Socket) {
 		super()
@@ -41,11 +50,11 @@ class WebRequest extends EventEmitter {
 	}
 }
 
-type ProxiedMethod = 'get' | 'head' | 'post' | 'put' | 'delete' | 'patch'
+export type ProxiedMethod = 'get' | 'head' | 'post' | 'put' | 'delete' | 'patch'
 
-type ProxiedPath = `${ProxiedMethod}|${string}`
+export type ProxiedPath = `${ProxiedMethod}|${string}` | `-${ProxiedMethod}|${string}`
 
-class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
+export class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	routes: [string, (req: WebRequest) => void][];
 	webSocket: Socket | null;
 	url: string;
@@ -115,10 +124,4 @@ class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 		}).bind(this))
 	}
-}
-
-export {
-	Client,
-	ProxiedMethod,
-	ProxiedPath
 }

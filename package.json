@@ -1,9 +1,9 @@
 {
   "name": "express-websocket-proxy",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "recieves requests though express and sends them through a websocket to the target client",
   "main": "./dist/index.js",
-  "typings": "./dist/types.d.ts",
+  "typings": "./dist/index.d.ts",
   "files": [
     "dist"
   ],
@@ -13,12 +13,12 @@
     "server": "node ./scripts/test_server.js",
     "debug-client": "node ./scripts/test_client.js debug",
     "client": "node ./scripts/test_client.js",
-    "build": "npm run clean && npx tsc",
+    "build": "npm run clean && npx tsc --declaration",
     "watch": "npm run clean && npx tsc --watch",
     "pretty": "npx prettier --write .",
     "clean": "node ./scripts/clean.js"
   },
-  "author": "Tare",
+  "author": "Oyintare Ebelo",
   "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
@@ -40,6 +40,6 @@
     "eslint-plugin-n": "^15.2.0",
     "eslint-plugin-promise": "^6.0.0",
     "prettier": "2.7.1",
-    "typescript": "^4.7.4"
+    "typescript": "^4.9.3"
   }
 }

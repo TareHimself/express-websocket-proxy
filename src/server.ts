@@ -7,14 +7,14 @@ import { Server as SocketIoServer, Socket } from "socket.io";
 import { v4 as uuidv4 } from 'uuid';
 import util from 'util'
 
-const DEFAULT_SERVER_OPTIONS: ServerStartOptions = {
+export const DEFAULT_SERVER_OPTIONS: ServerStartOptions = {
 	port: 80,
 	use_ssl: false
 }
 
-type ExpressCallback = (req: any, res: any) => Promise<void>
+export type ExpressCallback = (req: any, res: any) => Promise<void>
 
-class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
+export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	app: any;
 	server: http.Server | https.Server | null;
 	socket: SocketIoServer | null;
@@ -201,9 +201,3 @@ class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	}
 }
 
-
-
-export {
-	Server,
-	DEFAULT_SERVER_OPTIONS
-}
