@@ -184,7 +184,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 		this.socket.on('error', console.log)
 		this.socket.on('connection', (socket) => {
 
-			socket.once('identify', async (data) => {
+			socket.once('client-identify', async (data) => {
 				if (!this.authenticator(socket, data)) return
 				this.authenticated_sockets.set(socket.id, 1)
 				this.sockets_to_callbacks.set(socket.id, data.routes)

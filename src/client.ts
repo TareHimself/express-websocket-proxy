@@ -58,11 +58,13 @@ export class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	routes: [string, (req: WebRequest) => void][];
 	webSocket: Socket | null;
 	url: string;
+	clientId: string;
 	identifyGenerator: (this_client: Client<IdentifyType>, this_socket: Socket) => IdentifyType;
-	constructor(url: string) {
+	constructor(clientId: string, serverUrl: string) {
+		this.clientId = clientId
 		this.routes = []
 		this.webSocket = null
-		this.url = url
+		this.url = serverUrl
 		this.identifyGenerator = (this_client, this_socket) => {
 			return { routes: this_client.routes.map(m => m[0]) } as IdentifyType
 		}
@@ -70,7 +72,7 @@ export class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 	on(proxyPath: ProxiedPath, callback: (req: WebRequest) => void) {
 		if (!PROXY_PATH_REGEX.exec(proxyPath)) throw Error(`Path "${proxyPath}" does not match required format "${PROXY_PATH_REGEX.source}"`)
-		this.routes.push([proxyPath, callback])
+		this.routes.push([proxyPath.replace("|", `|${this.clientId}`), callback])
 	}
 
 	get(path: string, callback: (req: WebRequest) => void) {
@@ -119,7 +121,7 @@ export class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 		this.webSocket.on('connect', (() => {
 			if (this.webSocket) {
-				this.webSocket.emit('identify', this.identifyGenerator(this, this.webSocket))
+				this.webSocket.emit('client-identify', this.identifyGenerator(this, this.webSocket))
 			}
 
 		}).bind(this))
