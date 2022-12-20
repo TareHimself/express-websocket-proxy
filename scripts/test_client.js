@@ -3,7 +3,7 @@ const { Client } = require('../dist/index')
 const c = new Client("ws://localhost:9000")
 
 
-c.on('-get|nlu.*', (res) => {
+c.get('nlu', (res) => {
 	console.log('RECIEVED A REQUEST')
 	res.sendBody(res.originalUrl)
 })

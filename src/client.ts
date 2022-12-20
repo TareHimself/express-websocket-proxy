@@ -3,6 +3,7 @@ import { ProxiedResponse, ProxyIdentify, RawProxiedRequest } from './types';
 import { EventEmitter } from 'events';
 import { PROXY_PATH_REGEX } from './constants';
 
+
 export class WebRequest extends EventEmitter {
 
 	webSocket: Socket;
@@ -75,28 +76,28 @@ export class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 		this.routes.push([proxyPath.replace("|", `|${this.clientId}`), callback])
 	}
 
-	get(path: string, callback: (req: WebRequest) => void) {
-		this.on(`get|${path}`, callback)
+	get(path: string, callback: (req: WebRequest) => void, isRegex = false) {
+		this.on(`${isRegex ? "-" : ""}get|${path}`, callback)
 	}
 
-	head(path: string, callback: (req: WebRequest) => void) {
-		this.on(`head|${path}`, callback)
+	head(path: string, callback: (req: WebRequest) => void, isRegex = false) {
+		this.on(`${isRegex ? "-" : ""}head|${path}`, callback)
 	}
 
-	post(path: string, callback: (req: WebRequest) => void) {
-		this.on(`post|${path}`, callback)
+	post(path: string, callback: (req: WebRequest) => void, isRegex = false) {
+		this.on(`${isRegex ? "-" : ""}post|${path}`, callback)
 	}
 
-	put(path: string, callback: (req: WebRequest) => void) {
-		this.on(`put|${path}`, callback)
+	put(path: string, callback: (req: WebRequest) => void, isRegex = false) {
+		this.on(`${isRegex ? "-" : ""}put|${path}`, callback)
 	}
 
-	delete(path: string, callback: (req: WebRequest) => void) {
-		this.on(`delete|${path}`, callback)
+	delete(path: string, callback: (req: WebRequest) => void, isRegex = false) {
+		this.on(`${isRegex ? "-" : ""}delete|${path}`, callback)
 	}
 
-	patch(path: string, callback: (req: WebRequest) => void) {
-		this.on(`patch|${path}`, callback)
+	patch(path: string, callback: (req: WebRequest) => void, isRegex = false) {
+		this.on(`${isRegex ? "-" : ""}patch|${path}`, callback)
 	}
 
 	methodProxy(method: (req: WebRequest) => void, req: RawProxiedRequest) {
