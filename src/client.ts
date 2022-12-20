@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { ProxiedResponse, ProxyIdentify, RawProxiedRequest } from './types';
 import { EventEmitter } from 'events';
-import { PROXY_PATH_REGEX } from './constants';
+import { PROXY_PATH_REGEX, SOCKET_PROXIED_REQUEST_CLOSE, SOCKET_PROXIED_RESPONSE } from './constants';
 
 
 export class WebRequest extends EventEmitter {
@@ -9,45 +9,62 @@ export class WebRequest extends EventEmitter {
 	webSocket: Socket;
 	id: string;
 	url: string;
-	params: { [param: string]: number };
-	query: { [query: string]: number };
-	headers: { [header: string]: number };
+	params: { [param: string]: string };
+	query: { [query: string]: string };
+	headers: { [header: string]: string };
 	body?: any;
 	method: string;
 	originalUrl: string;
 	baseUrl: string;
 	path: string
+	res: ProxiedResponse
+	responded: boolean
 	onCloseCallback: (() => void) | null;
 
 
 	constructor(req: RawProxiedRequest, socket: Socket) {
 		super()
 		this.webSocket = socket
+		this.res = {
+			body: null,
+			headers: {},
+			status: null
+		}
+		this.responded = false
 		Object.assign(this, req)
-		this.onCloseCallback = (() => { this.emit('close'); this.onCloseCallback = null }).bind(this)
-		this.webSocket.once(`${this.id}|close`, this.onCloseCallback)
+		this.onCloseCallback = (() => { this.emit(SOCKET_PROXIED_REQUEST_CLOSE); this.onCloseCallback = null; this.responded = true; }).bind(this)
+		this.webSocket.once(`${this.id}|${SOCKET_PROXIED_REQUEST_CLOSE}`, this.onCloseCallback)
 	}
 
 	removeAllCallbacks() {
 		if (this.onCloseCallback) {
-			this.webSocket.off(`${this.id}|close`, this.onCloseCallback)
+			this.webSocket.off(`${this.id}|${SOCKET_PROXIED_REQUEST_CLOSE}`, this.onCloseCallback)
 		}
-
 	}
 
-	sendStatus(status: ProxiedResponse['status'], headers?: ProxiedResponse['headers']) {
-		this.webSocket.emit(`${this.id}|result`, { status, headers })
-		this.removeAllCallbacks()
+	sendStatus(status: number) {
+		this.res.status = status
+		this._sendPayload()
 	}
 
-	sendBody(body: ProxiedResponse['body']) {
-		this.webSocket.emit(`${this.id}|result`, { body: body })
-		this.removeAllCallbacks()
+	status(status: number) {
+		this.res.status = status
 	}
 
-	send(response: ProxiedResponse) {
-		this.webSocket.emit(`${this.id}|result`, response)
-		this.removeAllCallbacks()
+	setHeader(field: string, value: string) {
+		this.res.headers![field] = value
+	}
+
+	send(body: any) {
+		this.res.body = body
+		this._sendPayload()
+	}
+
+	_sendPayload() {
+		if (this.responded) return
+		this.responded = true;
+		this.webSocket.emit(`${this.id}|${SOCKET_PROXIED_RESPONSE}`, this.res);
+		this.removeAllCallbacks();
 	}
 }
 

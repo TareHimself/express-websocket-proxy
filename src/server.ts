@@ -1,21 +1,21 @@
-import { ProxiedResponse, ProxyIdentify, RawProxiedRequest, ServerStartOptions } from "./types";
-import express from 'express';
+import { ProxiedResponse, ProxyIdentify, RawProxiedRequest, ServerEvents, ServerStartOptions } from "./types";
+import express, { Application, Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import http from 'http';
 import https from 'https'
-import { PROXY_PATH_REGEX } from "./constants";
+import { PROXY_PATH_REGEX, SOCKET_PROXIED_REQUEST_CLOSE, SOCKET_PROXIED_RESPONSE } from "./constants";
 import { Server as SocketIoServer, Socket } from "socket.io";
 import { v4 as uuidv4 } from 'uuid';
-import util from 'util'
+import EventEmitter from "events";
 
 export const DEFAULT_SERVER_OPTIONS: ServerStartOptions = {
 	port: 80,
 	use_ssl: false
 }
 
-export type ExpressCallback = (req: any, res: any) => Promise<void>
+export type ExpressCallback = (req: ExpressRequest, res: ExpressResponse) => Promise<void>
 
 export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
-	app: any;
+	app: Application;
 	server: http.Server | https.Server | null;
 	socket: SocketIoServer | null;
 	callbacks_to_sockets: Map<ExpressCallback, string>;
@@ -23,6 +23,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	client_request_timeout: number;
 	authenticator: (Socket: Socket, data: IdentifyType) => boolean;
 	authenticated_sockets: Map<string, number>;
+	private _emitter: EventEmitter;
 
 	constructor(clientRequestTimeout = 10000) {
 		this.client_request_timeout = clientRequestTimeout
@@ -32,59 +33,78 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 		this.callbacks_to_sockets = new Map()
 		this.sockets_to_callbacks = new Map()
 		this.authenticated_sockets = new Map()
+		this._emitter = new EventEmitter()
 		this.authenticator = (Socket: Socket, data: IdentifyType) => true
 	}
 
-	getSocketResponse(req: any, socket: Socket, method: string, payload: Partial<RawProxiedRequest>, timeout = 10000) {
-		return new Promise<ProxiedResponse | null>((resolve, reject) => {
-			let resolved = false
-			let requestTimeout: null | ReturnType<typeof setTimeout> = null
+	on<T extends keyof ServerEvents>(event: T, callback: ServerEvents[T]) {
+		return this._emitter.on(event, callback);
+	}
+
+	once<T extends keyof ServerEvents>(event: T, callback: ServerEvents[T]) {
+		return this._emitter.once(event, callback);
+	}
+
+	off<T extends keyof ServerEvents>(event: T, callback: ServerEvents[T]) {
+		return this._emitter.off(event, callback);
+	}
+
+	emit<T extends keyof ServerEvents>(event: T, ...data: Parameters<ServerEvents[T]>) {
+		return this._emitter.emit(event, ...data)
+	}
+
+	handleSocket(req: ExpressRequest, res: ExpressResponse, socket: Socket, method: string, payload: Partial<RawProxiedRequest>, timeout = 10000) {
+		return new Promise<void>((resolve, reject) => {
+			let requestCompleted = false
 			const responseId = `${uuidv4()}`
 
-			const onEnd = (result) => {
-				if (resolved) return;
-				socket.emit('close')
-				resolve(result)
-				resolved = true
-				if (requestTimeout) {
-					clearTimeout(requestTimeout)
-					requestTimeout = null
+			const onSocketResponse = (response: ProxiedResponse) => {
+				requestCompleted = true;
+				req.off('close', onRequestClosed)
+				if (response.headers) {
+					res.set(response.headers)
 				}
-				req.off('close', onClose)
+
+				if (response.body === null && response.status !== null) {
+					res.sendStatus(response.status)
+				}
+				else {
+					if (response.status !== null) res.status(response.status)
+					res.send(response.body);
+				}
+				resolve()
 			}
 
-			const onClose = () => {
-				onEnd(null)
+			const onRequestClosed = () => {
+				if (!requestCompleted) {
+					socket.off(`${responseId}|${SOCKET_PROXIED_RESPONSE}`, onSocketResponse)
+					socket.emit(`${responseId}|${SOCKET_PROXIED_REQUEST_CLOSE}`)
+				}
+
+				req.off('close', onRequestClosed)
+				resolve()
 			}
 
-			const onTimeout = () => {
-				requestTimeout = null
-				onEnd(null)
-			}
-
-			requestTimeout = setTimeout(onTimeout, timeout)
-
-			socket.once(`${responseId}|result`, (d) => {
-				onEnd(d)
-			})
+			socket.on(`${responseId}|${SOCKET_PROXIED_RESPONSE}`, onSocketResponse)
 
 			socket.emit(method, { ...payload, id: responseId })
 
-			//req.once('close', onClose) issue with close event
+			req.on('close', onRequestClosed)
 		})
 
 	}
 
-
 	async registerRoutes(routes: string[], socketId: string) {
+		this.emit("CLIENT_CONNECT", socketId, routes);
 		const callbacks = routes.map(route => {
 			const [combined, method, path] = Array.from(PROXY_PATH_REGEX.exec(route)!)
-			const callback = async (req, res) => {
+			const callback = async (req: ExpressRequest, res: ExpressResponse) => {
 				const funcHandle = req.route.stack[0].handle
 				if (!this.socket) throw new Error('Main Io Server is invalid')
 				const socket = this.socket.sockets.sockets.get(this.callbacks_to_sockets.get(funcHandle)!)
 				if (socket && socket.connected) {
-					const payload = {
+
+					const payload: RawProxiedRequest = {
 						params: req.params,
 						query: req.query,
 						headers: req.headers,
@@ -93,26 +113,9 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 						originalUrl: req.originalUrl,
 						baseUrl: req.baseUrl,
 						path: req.path
-					}
-					const dataToSend = await this.getSocketResponse(req, socket, route, payload)
-
-					if (dataToSend && (dataToSend.body || dataToSend?.status)) {
-						const { body, headers, status } = dataToSend
-						if (headers) res.set(headers)
-						if (body && status) {
-							res.status(status)
-							res.send(body)
-						}
-						else if (body) {
-							res.send(body)
-						} else {
-							res.sendStatus(status)
-						}
-						return
-					}
+					} as unknown as RawProxiedRequest
+					return await this.handleSocket(req, res, socket, route, payload)
 				}
-
-
 				res.sendStatus(404)
 			}
 
@@ -127,7 +130,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	}
 
 	unRegisterRoutes(socket: Socket) {
-		// format [method|route][]
+		this.emit("CLIENT_DISCONNECT", socket.id)
 		const callbacks = this.sockets_to_callbacks.get(socket.id) || []
 		if (callbacks.length == 0) return
 
@@ -157,8 +160,6 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	async onIdentify(authenticator: (Socket: Socket, data: IdentifyType) => boolean) {
 		this.authenticator = authenticator
 	}
-
-
 
 	start(options: ServerStartOptions | null | number, callback?: () => void) {
 		if (typeof options === 'number') {

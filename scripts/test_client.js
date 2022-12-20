@@ -1,21 +1,21 @@
 const { Client } = require('../dist/index')
 
-const c = new Client("ws://localhost:9000")
+const c = new Client("test", "ws://localhost:9000")
 
 
-c.get('nlu', (res) => {
-	console.log('RECIEVED A REQUEST')
-	res.sendBody(res.originalUrl)
+c.get('/', (res) => {
+	console.log('RECIEVED A REQUEST', res.originalUrl)
+	res.send(res.originalUrl)
 })
 
 c.on('post|', (res) => {
 	console.log('RECIEVED A REQUEST')
-	res.sendBody('YOOOOOOO')
+	res.send('YOOOOOOO')
 })
 
 c.on('post|', (res) => {
 	console.log('RECIEVED A REQUEST')
-	res.sendBody('YOOOOOOO')
+	res.send('YOOOOOOO')
 })
 
 c.connect((client, server) => {

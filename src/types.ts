@@ -1,9 +1,9 @@
-
+export type Awaitable<T> = T | PromiseLike<T>;
 
 export interface RawProxiedRequest {
-	params: { [param: string]: number };
-	query: { [query: string]: number };
-	headers: { [header: string]: number };
+	params: { [param: string]: string };
+	query: { [query: string]: string };
+	headers: { [header: string]: string };
 	body?: any;
 	id: string;
 	method: string;
@@ -13,9 +13,9 @@ export interface RawProxiedRequest {
 }
 
 export interface ProxiedResponse {
-	body?: any;
-	status?: number;
-	headers?: { [param: string]: number };
+	body: any;
+	status: number | null;
+	headers: { [param: string]: string } | null;
 }
 
 export interface ProxyIdentify {
@@ -29,4 +29,10 @@ export interface ServerStartOptions {
 	ssl_key?: string | Buffer;
 	ssl_cert?: string | Buffer;
 }
+
+export interface ServerEvents {
+	CLIENT_CONNECT: (socketId: string, routes: string[]) => Awaitable<void>,
+	CLIENT_DISCONNECT: (socketId: string) => Awaitable<void>,
+}
+
 
