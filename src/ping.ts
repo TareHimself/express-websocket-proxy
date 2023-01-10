@@ -3,7 +3,7 @@ import cluster from 'cluster';
 import { getAppsToPing, tInsertStatus } from './db';
 import { EIpcOps, IIpcEvents, IIpcMessage, IStatusAppPingInfo } from './types';
 
-const PING_TIMEOUT = 10 * 1000;
+const PING_TIMEOUT = 5 * 60 * 1000;
 
 export class Ping {
 
