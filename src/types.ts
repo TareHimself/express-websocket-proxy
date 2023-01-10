@@ -1,40 +1,38 @@
-
 export type Awaitable<T> = T | PromiseLike<T>;
 
-export interface IStatusCheck {
-	state: 0 | 1;
-	latency: number;
-	time: number;
-}
-
-export interface IStatusApp {
+export interface RawProxiedRequest {
+	params: { [param: string]: string };
+	query: { [query: string]: string };
+	headers: { [header: string]: string };
+	body?: any;
 	id: string;
-	name: string;
-	url: string;
-	status: IStatusCheck[]
+	method: string;
+	originalUrl: string,
+	baseUrl: string,
+	path: string
 }
 
-const enum EIpcOps {
-	DEBUG = 0,
-	ADD = 1,
-	REMOVE = 2
+export interface ProxiedResponse {
+	body: any;
+	status: number | null;
+	headers: { [param: string]: string } | null;
 }
 
-export interface IIpcEvents {
-	[EIpcOps.DEBUG]: any,
-	[EIpcOps.ADD]: IStatusAppPingInfo,
-	[EIpcOps.REMOVE]: string
+export interface ProxyIdentify {
+	routes: string[];
 }
 
-type ReverseMap<T> = T[keyof T];
-
-export interface IIpcMessage<T extends keyof IIpcEvents> {
-	op: T;
-	d: IIpcEvents[T];
+export interface ServerStartOptions {
+	port?: number;
+	hostname?: string;
+	use_ssl?: boolean;
+	ssl_key?: string | Buffer;
+	ssl_cert?: string | Buffer;
 }
 
-export type IStatusAppPingInfo = { id: IStatusApp['id'], url: IStatusApp['url'] }
-
-export {
-	EIpcOps
+export interface ServerEvents {
+	CLIENT_CONNECT: (socketId: string, routes: string[]) => Awaitable<void>,
+	CLIENT_DISCONNECT: (socketId: string) => Awaitable<void>,
 }
+
+
