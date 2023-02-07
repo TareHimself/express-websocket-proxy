@@ -6,8 +6,30 @@ import { PROXY_PATH_REGEX, SOCKET_PROXIED_REQUEST_CLOSE, SOCKET_PROXIED_RESPONSE
 import { Server as SocketIoServer, Socket } from "socket.io";
 import { v4 as uuidv4 } from 'uuid';
 import EventEmitter from "events";
+import { ParamsDictionary } from "express-serve-static-core";
+import { ParsedQs } from "qs";
+import { DefaultEventsMap } from "socket.io/dist/typed-events";
 
 export const DEFAULT_SERVER_OPTIONS: ServerStartOptions = {
+	port: 80,
+	use_ssl: false
+}
+
+export interface ServerOptions {
+	timeout: number;
+	debug: boolean;
+	shouldBindOnClose: (req: ExpressRequest, socket: Socket, method: string, payload: Partial<RawProxiedRequest>) => Promise<boolean>;
+	port: number;
+	use_ssl: boolean;
+	hostname?: string;
+	ssl_key?: string | Buffer;
+	ssl_cert?: string | Buffer;
+}
+
+const DEFAULT_SERVER_OPTS: ServerOptions = {
+	timeout: 10000,
+	debug: false,
+	shouldBindOnClose: async () => true,
 	port: 80,
 	use_ssl: false
 }
@@ -20,21 +42,19 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	socket: SocketIoServer | null;
 	callbacks_to_sockets: Map<ExpressCallback, string>;
 	sockets_to_callbacks: Map<string, ExpressCallback[]>;
-	client_request_timeout: number;
 	authenticator: (Socket: Socket, data: IdentifyType) => boolean;
 	authenticated_sockets: Map<string, number>;
 	private _emitter: EventEmitter;
-	debug: boolean;
+	opts: ServerOptions;
 
-	constructor(clientRequestTimeout = 10000, debug = false) {
-		this.client_request_timeout = clientRequestTimeout
+	constructor(opts: ServerOptions = DEFAULT_SERVER_OPTS) {
+		this.opts = { ...DEFAULT_SERVER_OPTS, ...opts };
 		this.app = express();
 		this.server = null;
 		this.socket = null;
 		this.callbacks_to_sockets = new Map()
 		this.sockets_to_callbacks = new Map()
 		this.authenticated_sockets = new Map()
-		this.debug = debug
 		this._emitter = new EventEmitter()
 		this.authenticator = (Socket: Socket, data: IdentifyType) => true
 	}
@@ -56,7 +76,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	}
 
 	handleSocket(req: ExpressRequest, res: ExpressResponse, socket: Socket, method: string, payload: Partial<RawProxiedRequest>, timeout = 10000) {
-		return new Promise<void>((resolve, reject) => {
+		return new Promise<void>(async (resolve, reject) => {
 			let requestCompleted = false
 			const responseId = `${uuidv4()}`.replaceAll("-", '')
 
@@ -64,7 +84,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 			const onSocketResponse = (response: ProxiedResponse) => {
 				if (requestCompleted) return;
-				if (this.debug) console.log(responseId, `<< Received after ${Date.now() - start}ms. Data :`, response)
+				if (this.opts.debug) console.log(responseId, `<< Received after ${Date.now() - start}ms. Data :`, response)
 				requestCompleted = true;
 				req.off('close', onRequestClosed)
 				if (response.headers) {
@@ -86,7 +106,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 			const onRequestClosed = () => {
 
 				if (!requestCompleted) {
-					if (this.debug) console.log(responseId, `<< Closed after ${Date.now() - start}ms`)
+					if (this.opts.debug) console.log(responseId, `<< Closed after ${Date.now() - start}ms`)
 					socket.off(`${responseId}|${SOCKET_PROXIED_RESPONSE}`, onSocketResponse)
 					socket.emit(`${responseId}|${SOCKET_PROXIED_REQUEST_CLOSE}`)
 				}
@@ -96,24 +116,23 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 			}
 
 			socket.on(`${responseId}|${SOCKET_PROXIED_RESPONSE}`, onSocketResponse)
-			if (this.debug) console.log(responseId, ">> Waiting for response ",)
+			if (this.opts.debug) console.log(responseId, ">> Waiting for response ",)
 
+			if (await this.opts.shouldBindOnClose(req, socket, method, payload)) req.on('close', onRequestClosed)
 			socket.emit(method, { ...payload, id: responseId })
-
-			req.on('close', onRequestClosed)
 		})
 
 	}
 
 	async registerRoutes(routes: string[], socketId: string) {
-		if (this.debug) console.log("Registering routes", routes, "from socket with id", socketId)
+		if (this.opts.debug) console.log("Registering routes", routes, "from socket with id", socketId)
 		this.emit("CLIENT_CONNECT", socketId, routes);
 		const callbacks = routes.map(route => {
 			const [combined, method, path] = Array.from(PROXY_PATH_REGEX.exec(route)!)
 			const callback = async (req: ExpressRequest, res: ExpressResponse) => {
 				const funcHandle = req.route.stack[0].handle
 				if (!this.socket) throw new Error('Main Io Server is invalid')
-				console.log("\nProcessing request on route", route)
+				if (this.opts.debug) console.log("\nProcessing request on route", route)
 				const socket = this.socket.sockets.sockets.get(this.callbacks_to_sockets.get(funcHandle)!)
 				if (socket && socket.connected) {
 
@@ -131,7 +150,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 					return;
 				}
 				else {
-					if (this.debug) console.log("Failed to reach socket", socketId, "on route", route)
+					if (this.opts.debug) console.log("Failed to reach socket", socketId, "on route", route)
 					res.sendStatus(404)
 				}
 
@@ -140,7 +159,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 			const finalRoute = route.trim().startsWith('-') ? new RegExp(path) : `/${path}`;
 			this.app[method](finalRoute, callback)
 			this.callbacks_to_sockets.set(callback, socketId)
-			if (this.debug) console.log("Registered route", finalRoute.toString(), "on method", method)
+			if (this.opts.debug) console.log("Registered route", finalRoute.toString(), "on method", method)
 			return callback
 		});
 
@@ -179,20 +198,14 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 		this.authenticator = authenticator
 	}
 
-	start(options: ServerStartOptions | null | number, callback?: () => void) {
-		if (typeof options === 'number') {
-			options = DEFAULT_SERVER_OPTIONS && { port: options }
-		}
-		else if (!options) {
-			options = DEFAULT_SERVER_OPTIONS
-		}
+	start(callback?: () => void) {
 
-		if (options.use_ssl) {
-			if (!options.ssl_cert || !options.ssl_key) {
+		if (this.opts.use_ssl) {
+			if (!this.opts.ssl_cert || !this.opts.ssl_key) {
 				throw new Error(`Missing SSl Cert (and/or) Key`)
 			}
 
-			this.server = https.createServer({ key: options.ssl_key, cert: options.ssl_cert }, this.app);
+			this.server = https.createServer({ key: this.opts.ssl_key, cert: this.opts.ssl_cert }, this.app);
 		}
 		else {
 			this.server = http.createServer(this.app);
@@ -216,7 +229,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 			})
 		});
 
-		this.server.listen(options.port, options.hostname, undefined, callback)
+		this.server.listen(this.opts.port, this.opts.hostname, undefined, callback)
 	}
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "express-websocket-proxy",
-  "version": "1.4.0",
+  "version": "1.6.2",
   "description": "recieves requests though express and sends them through a websocket to the target client",
   "main": "./dist/index.js",
   "typings": "./dist/index.d.ts",
