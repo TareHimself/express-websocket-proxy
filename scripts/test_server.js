@@ -1,6 +1,6 @@
 const { Server } = require('../dist/index')
 
-const s = new Server()
+const s = new Server(10000, true)
 
 s.start(9000, () => {
 	console.log('SERVER STARTED')

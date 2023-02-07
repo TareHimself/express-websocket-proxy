@@ -58,9 +58,13 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	handleSocket(req: ExpressRequest, res: ExpressResponse, socket: Socket, method: string, payload: Partial<RawProxiedRequest>, timeout = 10000) {
 		return new Promise<void>((resolve, reject) => {
 			let requestCompleted = false
-			const responseId = `${uuidv4()}`
+			const responseId = `${uuidv4()}`.replaceAll("-", '')
+
+			const start = Date.now()
 
 			const onSocketResponse = (response: ProxiedResponse) => {
+				if (requestCompleted) return;
+				if (this.debug) console.log(responseId, `<< Received after ${Date.now() - start}ms. Data :`, response)
 				requestCompleted = true;
 				req.off('close', onRequestClosed)
 				if (response.headers) {
@@ -74,11 +78,15 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 					if (response.status !== null) res.status(response.status)
 					res.send(response.body);
 				}
+
+
 				resolve()
 			}
 
 			const onRequestClosed = () => {
+
 				if (!requestCompleted) {
+					if (this.debug) console.log(responseId, `<< Closed after ${Date.now() - start}ms`)
 					socket.off(`${responseId}|${SOCKET_PROXIED_RESPONSE}`, onSocketResponse)
 					socket.emit(`${responseId}|${SOCKET_PROXIED_REQUEST_CLOSE}`)
 				}
@@ -88,6 +96,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 			}
 
 			socket.on(`${responseId}|${SOCKET_PROXIED_RESPONSE}`, onSocketResponse)
+			if (this.debug) console.log(responseId, ">> Waiting for response ",)
 
 			socket.emit(method, { ...payload, id: responseId })
 
@@ -104,6 +113,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 			const callback = async (req: ExpressRequest, res: ExpressResponse) => {
 				const funcHandle = req.route.stack[0].handle
 				if (!this.socket) throw new Error('Main Io Server is invalid')
+				console.log("\nProcessing request on route", route)
 				const socket = this.socket.sockets.sockets.get(this.callbacks_to_sockets.get(funcHandle)!)
 				if (socket && socket.connected) {
 
@@ -117,15 +127,20 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 						baseUrl: req.baseUrl,
 						path: req.path
 					} as unknown as RawProxiedRequest
-					return await this.handleSocket(req, res, socket, route, payload)
+					await this.handleSocket(req, res, socket, route, payload)
+					return;
 				}
-				res.sendStatus(404)
+				else {
+					if (this.debug) console.log("Failed to reach socket", socketId, "on route", route)
+					res.sendStatus(404)
+				}
+
 			}
 
 			const finalRoute = route.trim().startsWith('-') ? new RegExp(path) : `/${path}`;
 			this.app[method](finalRoute, callback)
 			this.callbacks_to_sockets.set(callback, socketId)
-
+			if (this.debug) console.log("Registered route", finalRoute.toString(), "on method", method)
 			return callback
 		});
 

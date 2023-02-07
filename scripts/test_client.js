@@ -1,6 +1,6 @@
 const { Client } = require('../dist/index')
 
-const c = new Client("test", "ws://localhost:9000")
+const c = new Client("test", "ws://localhost:9000", true)
 
 
 c.get('/', (res) => {
@@ -10,7 +10,7 @@ c.get('/', (res) => {
 
 c.post('.*', (req) => {
 	req.send('RESPONSE ' + req.originalUrl)
-})
+}, true)
 
 c.connect((client, server) => {
 	return { routes: client.routes.map(m => m[0]), msg: "SUCK MY COCK" }

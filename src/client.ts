@@ -20,20 +20,34 @@ export class WebRequest extends EventEmitter {
 	res: ProxiedResponse
 	responded: boolean
 	onCloseCallback: (() => void) | null;
+	debug: boolean;
 
 
-	constructor(req: RawProxiedRequest, socket: Socket) {
+	constructor(req: RawProxiedRequest, socket: Socket, debug = false) {
 		super()
 		this.webSocket = socket
 		this.res = {
 			body: null,
-			headers: {},
+			headers: null,
 			status: null
 		}
+		this.debug = debug
 		this.responded = false
 		Object.assign(this, req)
-		this.onCloseCallback = (() => { this.emit(SOCKET_PROXIED_REQUEST_CLOSE); this.onCloseCallback = null; this.responded = true; }).bind(this)
+		this.onCloseCallback = this._onClosed.bind(this)
 		this.webSocket.once(`${this.id}|${SOCKET_PROXIED_REQUEST_CLOSE}`, this.onCloseCallback)
+		if (this.debug) console.log(this.id, "<< New proxied request")
+	}
+
+	private _onClosed() {
+		if (this.responded) {
+			return;
+		}
+
+		this.emit(SOCKET_PROXIED_REQUEST_CLOSE);
+		this.onCloseCallback = null;
+		this.responded = true;
+		if (this.debug) console.log(this.id, "<< Connection closed")
 	}
 
 	removeAllCallbacks() {
@@ -52,7 +66,14 @@ export class WebRequest extends EventEmitter {
 	}
 
 	setHeader(field: string, value: string) {
+		if (!this.headers) {
+			this.res.headers = {}
+		}
 		this.res.headers![field] = value
+	}
+
+	setHeaders(newHeaders: { [key: string]: string }) {
+		this.res.headers = newHeaders
 	}
 
 	send(body: any) {
@@ -65,6 +86,7 @@ export class WebRequest extends EventEmitter {
 		this.responded = true;
 		this.webSocket.emit(`${this.id}|${SOCKET_PROXIED_RESPONSE}`, this.res);
 		this.removeAllCallbacks();
+		if (this.debug) console.log(this.id, ">> Sending", this.res)
 	}
 }
 
@@ -78,11 +100,13 @@ export class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	url: string;
 	clientId: string;
 	identifyGenerator: (this_client: Client<IdentifyType>, this_socket: Socket) => IdentifyType;
-	constructor(clientId: string, serverUrl: string) {
+	debug: boolean;
+	constructor(clientId: string, serverUrl: string, debug = false) {
 		this.clientId = clientId
 		this.routes = []
 		this.webSocket = null
 		this.url = serverUrl
+		this.debug = debug;
 		this.identifyGenerator = (this_client, this_socket) => {
 			return { routes: this_client.routes.map(m => m[0]) } as IdentifyType
 		}
@@ -119,7 +143,7 @@ export class Client<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 
 	methodProxy(method: (req: WebRequest) => void, req: RawProxiedRequest) {
 		if (this.webSocket) {
-			method(new WebRequest(req, this.webSocket))
+			method(new WebRequest(req, this.webSocket, this.debug))
 		}
 	}
 
