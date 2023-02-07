@@ -24,8 +24,9 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	authenticator: (Socket: Socket, data: IdentifyType) => boolean;
 	authenticated_sockets: Map<string, number>;
 	private _emitter: EventEmitter;
+	debug: boolean;
 
-	constructor(clientRequestTimeout = 10000) {
+	constructor(clientRequestTimeout = 10000, debug = false) {
 		this.client_request_timeout = clientRequestTimeout
 		this.app = express();
 		this.server = null;
@@ -33,6 +34,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 		this.callbacks_to_sockets = new Map()
 		this.sockets_to_callbacks = new Map()
 		this.authenticated_sockets = new Map()
+		this.debug = debug
 		this._emitter = new EventEmitter()
 		this.authenticator = (Socket: Socket, data: IdentifyType) => true
 	}
@@ -95,6 +97,7 @@ export class Server<IdentifyType extends ProxyIdentify = ProxyIdentify> {
 	}
 
 	async registerRoutes(routes: string[], socketId: string) {
+		if (this.debug) console.log("Registering routes", routes, "from socket with id", socketId)
 		this.emit("CLIENT_CONNECT", socketId, routes);
 		const callbacks = routes.map(route => {
 			const [combined, method, path] = Array.from(PROXY_PATH_REGEX.exec(route)!)
